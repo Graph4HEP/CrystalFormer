@@ -1,3 +1,5 @@
+# CrystalFormer Exploring
+
 <div align="center">
 	<img align="middle" src="imgs/crystalformer.png" width="400" alt="logo"/>
   <h2> Crystal Generation with Space Group Informed Transformer</h2> 
