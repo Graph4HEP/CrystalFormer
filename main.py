@@ -1,47 +1,52 @@
 import jax 
 #jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp 
+import numpy as np
 from jax.flatten_util import ravel_pytree
 import optax
-import os
+import os, sys, time
 import multiprocessing
 import math
 
 from crystalformer.src.utils import GLXYZAW_from_file, letter_to_number
 from crystalformer.src.elements import element_dict, element_list
 from crystalformer.src.transformer import make_transformer  
+from crystalformer.src.transformer_parallel import make_transformer as make_transformer_parallel
 from crystalformer.src.train import train
+from crystalformer.src.train_parallel import train_mgpu
 from crystalformer.src.sample import sample_crystal, make_update_lattice
 from crystalformer.src.loss import make_loss_fn
 import crystalformer.src.checkpoint as checkpoint
 from crystalformer.src.wyckoff import mult_table
 from crystalformer.src.mcmc import make_mcmc_step
+from crystalformer.src.preprocess import data_process as dp
 
 import argparse
 parser = argparse.ArgumentParser(description='')
 
 group = parser.add_argument_group('training parameters')
-group.add_argument('--epochs', type=int, default=10000, help='')
-group.add_argument('--batchsize', type=int, default=100, help='')
+group.add_argument('--epochs', type=int, default=10001, help='')
+group.add_argument('--batchsize', type=int, default=128, help='')
 group.add_argument('--lr', type=float, default=1e-4, help='learning rate')
 group.add_argument('--lr_decay', type=float, default=0.0, help='lr decay')
 group.add_argument('--weight_decay', type=float, default=0.0, help='weight decay')
 group.add_argument('--clip_grad', type=float, default=1.0, help='clip gradient')
-group.add_argument("--optimizer", type=str, default="adam", choices=["none", "adam", "adamw"], help="optimizer type")
+group.add_argument("--optimizer", type=str, default="adamw", choices=["none", "adam", "adamw"], help="optimizer type")
+group.add_argument("--parallel", type=int, default=0, choices=[0, 1], help="parallel option")
 
-group.add_argument("--folder", default="../data/", help="the folder to save data")
+group.add_argument("--folder", default="./log/", help="the folder to save data")
 group.add_argument("--restore_path", default=None, help="checkpoint path or file")
 
 group = parser.add_argument_group('dataset')
-group.add_argument('--train_path', default='/home/wanglei/cdvae/data/mp_20/train.csv', help='')
-group.add_argument('--valid_path', default='/home/wanglei/cdvae/data/mp_20/val.csv', help='')
-group.add_argument('--test_path', default='/home/wanglei/cdvae/data/mp_20/test.csv', help='')
+group.add_argument('--train_path', default='data/mp_20/train.csv', help='')
+group.add_argument('--valid_path', default='data/mp_20/val.csv', help='')
+group.add_argument('--test_path', default='data/mp_20/test.csv', help='')
 
 group = parser.add_argument_group('transformer parameters')
 group.add_argument('--Nf', type=int, default=5, help='number of frequencies for fc')
 group.add_argument('--Kx', type=int, default=16, help='number of modes in x')
 group.add_argument('--Kl', type=int, default=4, help='number of modes in lattice')
-group.add_argument('--h0_size', type=int, default=256, help='hidden layer dimension for the first atom, 0 means we simply use a table for first aw_logit')
+group.add_argument('--h0_size', type=int, default=256, help='hidden layer dimension for the first atom, should be larger than 0')
 group.add_argument('--transformer_layers', type=int, default=16, help='The number of layers in transformer')
 group.add_argument('--num_heads', type=int, default=16, help='The number of heads')
 group.add_argument('--key_size', type=int, default=64, help='The key size')
@@ -61,7 +66,7 @@ group.add_argument('--wyck_types', type=int, default=28, help='Number of possibl
 
 group = parser.add_argument_group('sampling parameters')
 group.add_argument('--seed', type=int, default=None, help='random seed to sample')
-group.add_argument('--spacegroup', type=int, help='The space group id to be sampled (1-230)')
+group.add_argument('--spacegroup', type=int, help='The space group id to be sampled (1-230), 0 means sample all cases')
 group.add_argument('--wyckoff', type=str, default=None, nargs='+', help='The Wyckoff positions to be sampled, e.g. a, b')
 group.add_argument('--elements', type=str, default=None, nargs='+', help='name of the chemical elemenets, e.g. Bi, Ti, O')
 group.add_argument('--remove_radioactive', action='store_true', help='remove radioactive elements and noble gas')
@@ -79,7 +84,7 @@ group.add_argument('--mc_width', type=float, default=0.1, help='width of MCMC st
 
 args = parser.parse_args()
 
-key = jax.random.PRNGKey(42)
+key = jax.random.PRNGKey(20220827)
 
 num_cpu = multiprocessing.cpu_count()
 print('number of available cpu: ', num_cpu)
@@ -90,12 +95,33 @@ if args.num_io_process > num_cpu:
 
 ################### Data #############################
 if args.optimizer != "none":
-    train_data = GLXYZAW_from_file(args.train_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
-    valid_data = GLXYZAW_from_file(args.valid_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
+    #original method to load data
+    train_data = dp(args.train_path, args.num_io_process, args.n_max)
+    valid_data = dp(args.valid_path, args.num_io_process, args.n_max)
+    #if(args.train_path[-3:]=='csv' and args.valid_path[-3:]=='csv'):
+    #    train_data = GLXYZAW_from_file(args.train_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
+    #    valid_data = GLXYZAW_from_file(args.valid_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
+    #load data from the preprocess
+    #elif(args.train_path[-3:]=='npz' and args.valid_path[-3:]=='npz'):
+    #    train_npz = np.load(args.train_path)
+    #    valid_npz = np.load(args.valid_path)
+    #    train_data = jnp.array(train_npz['array1']), jnp.array(train_npz['array2']), jnp.array(train_npz['array3']), jnp.array(train_npz['array4']), jnp.array(train_npz['array5'])
+    #    valid_data = jnp.array(valid_npz['array1']), jnp.array(valid_npz['array2']), jnp.array(valid_npz['array3']), jnp.array(valid_npz['array4']), jnp.array(valid_npz['array5'])
+    #else:
+    #    print('wrong input data, exit now!')
+    #    sys.exit()
 else:
     assert (args.spacegroup is not None) # for inference we need to specify space group
-    test_data = GLXYZAW_from_file(args.test_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
-    
+    test_data = dp(args.test_path, args.num_io_process, args.n_max)
+    #if(args.test_path[-3:]=='csv'):
+    #    test_data = GLXYZAW_from_file(args.test_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
+    #elif(args.test_path[-3]=='npz'):
+    #    test_npz = np.load(args.test_path)
+    #    test_data = jnp.array(test_npz['array1']),  jnp.array(test_npz['array2']),  jnp.array(test_npz['array3']),  jnp.array(test_npz['array4']),  jnp.array(test_npz['array5'])
+    #else:
+    #    print('wrong input data, exit now!')
+    #    sys.exit()
+
     # jnp.set_printoptions(threshold=jnp.inf)  # print full array 
     constraints = jnp.arange(0, args.n_max, 1)
 
@@ -162,12 +188,21 @@ else:
         w_mask = None
 
 ################### Model #############################
-params, transformer = make_transformer(key, args.Nf, args.Kx, args.Kl, args.n_max, 
-                                      args.h0_size, 
-                                      args.transformer_layers, args.num_heads, 
-                                      args.key_size, args.model_size, args.embed_size, 
-                                      args.atom_types, args.wyck_types,
-                                      args.dropout_rate)
+if(args.parallel==0):
+    params, transformer = make_transformer(key, args.Nf, args.Kx, args.Kl, args.n_max, 
+                                          args.h0_size, 
+                                          args.transformer_layers, args.num_heads, 
+                                          args.key_size, args.model_size, args.embed_size, 
+                                          args.atom_types, args.wyck_types,
+                                          args.dropout_rate)
+else:
+    params, transformer = make_transformer_parallel(key, args.Nf, args.Kx, args.Kl, args.n_max,
+                                          args.h0_size,
+                                          args.transformer_layers, args.num_heads,
+                                          args.key_size, args.model_size, args.embed_size,
+                                          args.atom_types, args.wyck_types,
+                                          args.dropout_rate)
+
 transformer_name = 'Nf_%d_Kx_%d_Kl_%d_h0_%d_l_%d_H_%d_k_%d_m_%d_e_%d_drop_%g'%(args.Nf, args.Kx, args.Kl, args.h0_size, args.transformer_layers, args.num_heads, args.key_size, args.model_size, args.embed_size, args.dropout_rate)
 
 print ("# of transformer params", ravel_pytree(params)[0].size) 
@@ -222,7 +257,14 @@ if args.optimizer != "none":
         pass 
  
     print("\n========== Start training ==========")
-    params, opt_state = train(key, optimizer, opt_state, loss_fn, params, epoch_finished, args.epochs, args.batchsize, train_data, valid_data, output_path)
+    if(args.parallel==0):
+        params, opt_state = train(key, optimizer, opt_state, loss_fn, params, epoch_finished, args.epochs, args.batchsize, train_data, valid_data, output_path)
+    else:
+        params, opt_state = train_mgpu(key, optimizer, opt_state, loss_fn, params, epoch_finished, args.epochs, args.batchsize, train_data, valid_data, output_path, args)
+
+    print('training done! If you want to sampling some new structures, please run:')
+    print('python ./main.py --optimizer none --test_path {args.test_path} --restore_path {output_path}/epoch_***.pkl --spacegroup [0-230] --num_samples 1000  --batchsize 1000 --temperature 1.0 ')
+
 
 else:
     pass
@@ -250,6 +292,7 @@ else:
     print ("evaluating loss on test data:" , test_loss)
 
     print("\n========== Start sampling ==========")
+    st = time.time()
     jax.config.update("jax_enable_x64", True) # to get off compilation warning, and to prevent sample nan lattice 
     #FYI, the error was [Compiling module extracted] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
 
@@ -268,62 +311,71 @@ else:
 
     num_batches = math.ceil(args.num_samples / args.batchsize)
     name, extension = args.output_filename.rsplit('.', 1)
-    filename = os.path.join(output_path, 
-                            f"{name}_{args.spacegroup}.{extension}")
-    for batch_idx in range(num_batches):
-        start_idx = batch_idx * args.batchsize
-        end_idx = min(start_idx + args.batchsize, args.num_samples)
-        n_sample = end_idx - start_idx
-        key, subkey = jax.random.split(key)
-        XYZ, A, W, M, L = sample_crystal(subkey, transformer, params, args.n_max, n_sample, args.atom_types, args.wyck_types, args.Kx, args.Kl, args.spacegroup, w_mask, atom_mask, args.top_p, args.temperature, T1, constraints)
 
-        G = args.spacegroup * jnp.ones((n_sample), dtype=int)
-        if args.mcmc:
-            x = (G, L, XYZ, A, W)
+    for sg in range(1,231):
+        if(args.spacegroup!=0):
+            if(args.spacegroup!=sg):
+                continue
+        print('start sample ', sg)
+        filename = os.path.join(output_path, 
+                                f"{name}_{sg}.{extension}")
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * args.batchsize
+            end_idx = min(start_idx + args.batchsize, args.num_samples)
+            n_sample = end_idx - start_idx
             key, subkey = jax.random.split(key)
-            x, acc = mcmc(logp_fn, x_init=x, key=subkey, mc_steps=mc_steps, mc_width=args.mc_width)
-            print("acc", acc)
+            XYZ, A, W, M, L = sample_crystal(subkey, transformer, params, args.n_max, n_sample, args.atom_types, args.wyck_types, args.Kx, args.Kl, sg, w_mask, atom_mask, args.top_p, args.temperature, T1, constraints)
+    
+            G = sg * jnp.ones((n_sample), dtype=int)
+            if args.mcmc:
+                x = (G, L, XYZ, A, W)
+                key, subkey = jax.random.split(key)
+                x, acc = mcmc(logp_fn, x_init=x, key=subkey, mc_steps=mc_steps, mc_width=args.mc_width)
+                #print("acc", acc)
 
-            G, L, XYZ, A, W = x
-            key, subkey = jax.random.split(key)
-            L = update_lattice(subkey, G, XYZ, A, W)
+                G, L, XYZ, A, W = x
+                key, subkey = jax.random.split(key)
+                L = update_lattice(subkey, G, XYZ, A, W)
         
-        print ("XYZ:\n", XYZ)  # fractional coordinate 
-        print ("A:\n", A)  # element type
-        print ("W:\n", W)  # Wyckoff positions
-        print ("M:\n", M)  # multiplicity 
-        print ("N:\n", M.sum(axis=-1)) # total number of atoms
-        print ("L:\n", L)  # lattice
-        for a in A:
-           print([element_list[i] for i in a])
+            #print ("XYZ:\n", XYZ)  # fractional coordinate 
+            #print ("A:\n", A)  # element type
+            #print ("W:\n", W)  # Wyckoff positions
+            #print ("M:\n", M)  # multiplicity 
+            #print ("N:\n", M.sum(axis=-1)) # total number of atoms
+            #print ("L:\n", L)  # lattice
+            #for a in A:
+            #   print([element_list[i] for i in a])
 
-        # output L, X, A, W, M, AW to csv file
-        # output logp_w, logp_xyz, logp_a, logp_l to csv file
-        import pandas as pd
-        data = pd.DataFrame()
-        data['L'] = np.array(L).tolist()
-        data['X'] = np.array(XYZ).tolist()
-        data['A'] = np.array(A).tolist()
-        data['W'] = np.array(W).tolist()
-        data['M'] = np.array(M).tolist()
+            # output L, X, A, W, M, AW to csv file
+            # output logp_w, logp_xyz, logp_a, logp_l to csv file
+            import pandas as pd
+            data = pd.DataFrame()
+            data['L'] = np.array(L).tolist()
+            data['X'] = np.array(XYZ).tolist()
+            data['A'] = np.array(A).tolist()
+            data['W'] = np.array(W).tolist()
+            data['M'] = np.array(M).tolist()
 
-        num_atoms = jnp.sum(M, axis=1)
-        length, angle = jnp.split(L, 2, axis=-1)
-        length = length/num_atoms[:, None]**(1/3)
-        angle = angle * (jnp.pi / 180) # to rad
-        L = jnp.concatenate([length, angle], axis=-1)
+            #num_atoms = jnp.sum(M, axis=1)
+            #length, angle = jnp.split(L, 2, axis=-1)
+            #length = length/num_atoms[:, None]**(1/3)
+            #angle = angle * (jnp.pi / 180) # to rad
+            #L = jnp.concatenate([length, angle], axis=-1)
 
-        # G = args.spacegroup * jnp.ones((n_sample), dtype=int)
-        logp_w, logp_xyz, logp_a, logp_l = jax.jit(logp_fn, static_argnums=7)(params, key, G, L, XYZ, A, W, False)
+            # G = sg * jnp.ones((n_sample), dtype=int)
+            #logp_w, logp_xyz, logp_a, logp_l = jax.jit(logp_fn, static_argnums=7)(params, key, G, L, XYZ, A, W, False)
+    
+            #data['logp_w'] = np.array(logp_w).tolist()
+            #data['logp_xyz'] = np.array(logp_xyz).tolist()
+            #data['logp_a'] = np.array(logp_a).tolist()
+            #data['logp_l'] = np.array(logp_l).tolist()
+            #data['logp'] = np.array(logp_xyz + args.lamb_w*logp_w + args.lamb_a*logp_a + args.lamb_l*logp_l).tolist()
 
-        data['logp_w'] = np.array(logp_w).tolist()
-        data['logp_xyz'] = np.array(logp_xyz).tolist()
-        data['logp_a'] = np.array(logp_a).tolist()
-        data['logp_l'] = np.array(logp_l).tolist()
-        data['logp'] = np.array(logp_xyz + args.lamb_w*logp_w + args.lamb_a*logp_a + args.lamb_l*logp_l).tolist()
-
-        data = data.sort_values(by='logp', ascending=False) # sort by logp
-        header = False if os.path.exists(filename) else True
-        data.to_csv(filename, mode='a', index=False, header=header)
+            #data = data.sort_values(by='logp', ascending=False) # sort by logp
+            header = False if os.path.exists(filename) else True
+            data.to_csv(filename, mode='a', index=False, header=header)
 
         print ("Wrote samples to %s"%filename)
+        print(f"sample time used: {time.time()-st:.1f}s")
+        print("sampling done, if you want to check the quality of the generated structures, please run:")
+        print(f"python ./script/eval.py --output_path {output_path} --label [1-231] --train_path {args.train_path} --test_path {args.test_path}")

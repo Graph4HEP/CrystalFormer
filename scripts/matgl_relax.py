@@ -88,7 +88,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--restore_path", type=str, default="/data/zdcao/crystal_gpt/data/b38199e3/adam_bs_100_lr_0.0001_decay_0_clip_1_A_119_W_28_N_21_a_1_w_1_l_1_Nf_5_Kx_16_Kl_4_h0_256_l_16_H_16_k_64_m_64_e_32_drop_0.5/unconditional/sorted")
     parser.add_argument('--filename', default='output_225_struct.csv')
-    parser.add_argument('--relaxation', action='store_true')
+    parser.add_argument('--relaxation', type=int, default=1)
     parser.add_argument('--model_path', default='/data/zdcao/website/matgl/pretrained_models/M3GNet-MP-2021.2.8-PES')
     parser.add_argument('--label', default='')
     args = parser.parse_args()

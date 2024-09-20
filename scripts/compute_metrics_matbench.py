@@ -10,6 +10,9 @@ from time import time
 
 from matbench_genmetrics.core.metrics import GenMetrics
 
+import sys
+sys.path.append('crystalformer/src/')
+from preprocess import *
 
 def get_structure(cif):
     try:
@@ -17,10 +20,24 @@ def get_structure(cif):
     except:
         return Structure.from_dict(literal_eval(cif))
 
+def read_cif(path):
+    if(path[-3:]=='csv'):
+        cif = read_csv_file(path)
+    elif(path[-3:]=='zip'):
+        cif = read_zip_file(path)
+    elif(path[-3:]=='.gz'):
+        cif = load_data_from_tar(path)
+    else:
+        cif = load_data_from_path(path)
+    return cif
+
 def main(args):
-    train_df = pd.read_csv(args.train_path)
-    test_df = pd.read_csv(args.test_path)
+    train_df = read_cif(args.train_path)
+    test_df = read_cif(args.test_path)
     gen_df = pd.read_csv(args.gen_path)
+
+    train_df = pd.DataFrame(train_df, columns=['cif'])
+    test_df = pd.DataFrame(test_df, columns=['cif'])
 
     p = multiprocessing.Pool(args.num_io_process)
     train_structures = p.map_async(get_structure, train_df['cif']).get()
@@ -36,16 +53,18 @@ def main(args):
                              gen_structures=gen_structures,
                          )
     
-    # all_metrics = gen_metrics.metrics
-    # all_metrics['validity'] = gen_metrics.validity
     all_metrics['novelty'] = gen_metrics.novelty
     all_metrics['uniqueness'] = gen_metrics.uniqueness
+    all_metrics['validity'] = gen_metrics.validity
+    all_metrics['coverage'] = gen_metrics.coverage
 
     end_time = time()
     print('Time used: {:.2f} s'.format(end_time - start_time))
     print(all_metrics)
     with open(args.output_path + f'metrics_{args.label}.json', 'w') as f:
         json.dump(all_metrics, f, indent=4)
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')

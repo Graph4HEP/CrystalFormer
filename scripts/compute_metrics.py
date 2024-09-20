@@ -11,6 +11,7 @@ import multiprocessing
 from pathlib import Path
 
 from pymatgen.core.structure import Structure, Composition
+from pymatgen.io.cif import CifWriter
 from matminer.featurizers.site.fingerprint import CrystalNNFingerprint
 from matminer.featurizers.composition.composite import ElementProperty
 
@@ -31,6 +32,13 @@ class Crystal(object):
         self.get_composition()
         self.get_validity()
         # self.get_fingerprints()
+        self.get_string()
+
+    def get_string(self):
+        try:
+            self.cif_string = CifWriter(self.structure, significant_figures=6).__str__()
+        except:
+            self.cif_string = None        
 
     def get_structure(self):
         try:
@@ -79,12 +87,14 @@ class Crystal(object):
 
 
 def get_validity(crys):
-    comp_valid = np.array([c.comp_valid for c in crys]).mean()
-    struct_valid = np.array([c.struct_valid for c in crys]).mean()
-    valid = np.array([c.valid for c in crys]).mean()
+    comp_valid = [int(c.comp_valid) for c in crys]
+    struct_valid = [int(c.struct_valid) for c in crys]
+    valid = [int(c.valid) for c in crys]
+    strings = [c.cif_string for c in crys]
     return {'comp_valid': comp_valid,
-            'struct_valid': struct_valid,
-            'valid': valid}
+             'struct_valid': struct_valid,
+             'valid': valid,
+             'cif': strings}
 
 def get_crystal(cif_dict):
     try: return Crystal(cif_dict)
@@ -112,7 +122,7 @@ def main(args):
     p.join()
 
     all_metrics['validity'] = get_validity(crys)
-    print(all_metrics)
+    #print(all_metrics)
 
     if args.label == '':
         metrics_out_file = 'eval_metrics.json'
@@ -136,6 +146,12 @@ def main(args):
     else:
         with open(metrics_out_file, 'w') as f:
             json.dump(all_metrics, f)
+
+    os.makedirs(f'{args.root_path}validity_result_cif_{args.label}') 
+    for idx in range(len(crys)):
+        if(all_metrics['validity']['valid'][idx]==1):
+            with open(f'{args.root_path}validity_result_cif_{args.label}/{idx}.cif', 'w', encoding='utf-8') as file:
+                file.write(all_metrics['validity']['cif'][idx])
 
 
 if __name__ == '__main__':

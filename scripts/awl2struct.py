@@ -1,6 +1,3 @@
-import sys
-sys.path.append('./src/')
-
 import pandas as pd
 import numpy as np
 from ast import literal_eval
@@ -9,6 +6,9 @@ import itertools
 import argparse
 
 from pymatgen.core import Structure, Lattice
+from pymatgen.io.cif import CifWriter
+import sys
+sys.path.append('./crystalformer/src/')
 from wyckoff import wmax_table, mult_table, symops
 
 symops = np.array(symops)
@@ -79,7 +79,7 @@ def get_struct_from_lawx(G, L, A, W, X):
     A_list = list(itertools.chain.from_iterable(as_list))
     X_list = list(itertools.chain.from_iterable(xs_list))
     struct = Structure(lattice, A_list, X_list)
-    return struct.as_dict()
+    return struct
 
 def main(args):
     input_path = args.output_path + f'output_{args.label}.csv'
@@ -108,7 +108,9 @@ def main(args):
     output_path = args.output_path + f'output_{args.label}_struct.csv'
 
     data = pd.DataFrame()
-    data['cif'] = structures
+    structures_dict = [i.as_dict() for i in structures]
+    cif_strs = [CifWriter(i, significant_figures=6).__str__() for i in structures]
+    data['cif'] = structures_dict
     data.to_csv(output_path, mode='a', index=False, header=True)
 
 

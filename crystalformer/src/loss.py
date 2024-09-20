@@ -29,6 +29,7 @@ def make_loss_fn(n_max, atom_types, wyck_types, Kx, Kl, transformer, lamb_a=1.0,
     coord_types = 3*Kx
     lattice_mask = make_lattice_mask()
 
+    @jax.jit
     def compute_logp_x(h_x, X, fc_mask_x):
         x_logit, loc, kappa = jnp.split(h_x, [Kx, 2*Kx], axis=-1)
         x_loc = loc.reshape(n_max, Kx)

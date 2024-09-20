@@ -5,6 +5,8 @@ import smact
 from smact.screening import pauling_test
 
 from config import *
+import sys
+sys.path.append('./crystalformer/src/')
 from elements import element_list
 
 # Taken without modification from the original CDVAE repo (https://github.com/txie-93/cdvae)

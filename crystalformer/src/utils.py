@@ -45,7 +45,7 @@ def shuffle(key, data):
     idx = jax.random.permutation(key, jnp.arange(len(L)))
     return G[idx], L[idx], XYZ[idx], A[idx], W[idx]
     
-def process_one(cif, atom_types, wyck_types, n_max, tol=0.01):
+def process_one(cif, atom_types, wyck_types, n_max, tol=0.001):
     """
     # taken from https://anonymous.4open.science/r/DiffCSP-PP-8F0D/diffcsp/common/data_utils.py
     Process one cif string to get G, L, XYZ, A, W
@@ -69,7 +69,7 @@ def process_one(cif, atom_types, wyck_types, n_max, tol=0.01):
     crystal = spga.get_refined_structure()
     c = pyxtal()
     try:
-        c.from_seed(crystal, tol=0.01)
+        c.from_seed(crystal, tol=tol)
     except:
         c.from_seed(crystal, tol=0.0001)
     
@@ -77,7 +77,7 @@ def process_one(cif, atom_types, wyck_types, n_max, tol=0.01):
     num_sites = len(c.atom_sites)
     assert (n_max > num_sites) # we will need at least one empty site for output of L params
 
-    print (g, c.group.symbol, num_sites)
+    #print (g, c.group.symbol, num_sites)
     natoms = 0
     ww = []
     aa = []
@@ -97,13 +97,13 @@ def process_one(cif, atom_types, wyck_types, n_max, tol=0.01):
         ww.append( w )
         fc.append( x )  # the generator of the orbit
         ws.append( symbol )
-        print ('g, a, w, m, symbol, x:', g, a, w, m, symbol, x)
+        #print ('g, a, w, m, symbol, x:', g, a, w, m, symbol, x)
     idx = np.argsort(ww)
     ww = np.array(ww)[idx]
     aa = np.array(aa)[idx]
     fc = np.array(fc)[idx].reshape(num_sites, 3)
     ws = np.array(ws)[idx]
-    print (ws, aa, ww, natoms) 
+    #print (ws, aa, ww, natoms) 
 
     aa = np.concatenate([aa,
                         np.full((n_max - num_sites, ), 0)],
@@ -120,7 +120,7 @@ def process_one(cif, atom_types, wyck_types, n_max, tol=0.01):
     angles = np.array([c.lattice.alpha, c.lattice.beta, c.lattice.gamma])
     l = np.concatenate([abc, angles])
     
-    print ('===================================')
+    #print ('===================================')
 
     return g, l, fc, aa, ww 
 
