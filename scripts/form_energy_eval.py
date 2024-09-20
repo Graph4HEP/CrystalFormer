@@ -7,32 +7,29 @@ sys.path.append('../openlam/lam_optimize/')
 from relaxer import Relaxer
 from pymatgen.io.ase import AseAtomsAdaptor
 import shutil, os
+import ase.io
 from pymatgen.core import Structure
 from utils import get_e_form_per_atom
 import numpy as np
 
-def getEnergy(name):
+def getEnergy(path, name):
     relaxer = Relaxer("mace")
     calculator = relaxer.calculator
     structure = Structure.from_file(name)
-    result_temp = relaxer.relax(structure, fmax=0.05, steps=10, traj_file=None)
+    result_temp = relaxer.relax(structure, fmax=0.05, steps=100, traj_file=None)
     atoms = AseAtomsAdaptor.get_atoms(Structure.from_dict(result_temp["final_structure"]))
     atoms.calc = relaxer.calculator
     print(get_e_form_per_atom(atoms, atoms.get_potential_energy()))
     if(get_e_form_per_atom(atoms, atoms.get_potential_energy())<-1 and get_e_form_per_atom(atoms, atoms.get_potential_energy())>-10 and np.max(abs(atoms.get_forces())) < 100):
-        return 1
-    else:
-        return 0
+	cif_file = f'{path}{atoms.symbols}.cif'
+        ase.io.write(cif_file, atoms, format='cif')
 
 from tqdm import tqdm
 def main(path):
     name = glob.glob(f'{path}*.cif')
     os.makedirs(f'{path}excellent', exist_ok=True)
-    count = 0
     for n in tqdm(name):
-        if( getEnergy(n) == 1 ):
-            shutil.copy(n, f'{path}excellent/{count}.cif')
-            count+=1
+        getEnergy(path, n)
 
 if __name__ == '__main__':
     path = sys.argv[1]
