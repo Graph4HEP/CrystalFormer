@@ -37,7 +37,7 @@ We only consider symmetry inequivalent atoms. The remaining atoms are restored b
 
 Machine: autodl-L20, Miniconda / conda3 / python 3.10 / ubuntu 22.04 / cuda 11.8
 
-Fork the original [repo](https://github.com/deepmodeling/CrystalFormer)
+Fork the repo, so that you can change it as you want.
 
 Run the following command to setup the enviroment:
 
@@ -48,7 +48,7 @@ source /etc/network_turbo #alternative
 conda activate crystalgpt
 ssh-keygen
 cat ~/.ssh/id_rsa.pub #copy the public key to the ssh key setting in the github setting page
-git clone git@github.com:Graph4HEP/CrystalFormer.git #clone the forked repo through ssh url, so that you can modify the code as you want
+git clone git@github.com:your_name/CrystalFormer.git #clone the forked repo through ssh url, so that you can modify the code as you want
 cd CrystalFormer
 python -m pip install --upgrade pip
 pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple #change to a faster source of pip according to your location
@@ -161,7 +161,7 @@ python ./main.py --optimizer none --test_path data/mp_20/test.csv --restore_path
 
 - `optimizer`: the optimizer to use, `none` means no training, only sampling
 - `restore_path`: the path to the model weights
-- `spacegroup`: the space group number to sample
+- `spacegroup`: the space group number to sample, can be choose from 0-230, 0 means sample all labels with `num_samples`, 1-230 is sampling for a specific space group.
 - `num_samples`: the number of samples to generate
 - `batchsize`: the batch size for sampling
 - `temperature`: the temperature for sampling
