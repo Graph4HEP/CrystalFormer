@@ -37,15 +37,19 @@ We only consider symmetry inequivalent atoms. The remaining atoms are restored b
 
 Machine: autodl-L20, Miniconda / conda3 / python 3.10 / ubuntu 22.04 / cuda 11.8
 
-Fork the repo, so that you can change it as you want.
+Fork the [repo](https://github.com/deepmodeling/CrystalFormer), so that you can change it as you want.
+
+If you want to use my modification, just clone this repo.
+
+Clone the repo [openlam](https://github.com/Graph4HEP/openlam), which is modified from [here](https://github.com/deepmodeling/openlam).
 
 Run the following command to setup the enviroment:
 
 ```bash
 conda init
-conda create -n crystalgpt python==3.10
-source /etc/network_turbo #alternative
-conda activate crystalgpt
+source /etc/network_turbo #alternative, speedup command for autodl machine
+conda activate jax
+conda create -y -n jax -c "nvidia/label/cuda-12.6.0" cuda python=3.10 virtualenv pip
 ssh-keygen
 cat ~/.ssh/id_rsa.pub #copy the public key to the ssh key setting in the github setting page
 git clone git@github.com:your_name/CrystalFormer.git #clone the forked repo through ssh url, so that you can modify the code as you want
@@ -53,6 +57,13 @@ cd CrystalFormer
 python -m pip install --upgrade pip
 pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple #change to a faster source of pip according to your location
 pip install --upgrade "jax[cuda12]"
+cd ../
+git conle git@github.com:your_name/openlam.git
+cd openlam
+pip install .
+pip install ".[dp]"
+pip install ".[mace]"
+cd ../CrystalFormer
 pip install -r requirements.txt
 ```
 
@@ -150,13 +161,13 @@ The parallel progress cannot use bool type value in the model, so the `attention
 
 To run the parallel training, just add the '--parallel 1' option:
 ```bash
-python main.py --parallel 1 --train_path data/mp_20/train.npz --valid_path data/mp_20/val.npz
+python main.py --parallel 1 --train_path data/mp_20/train.npz --valid_path data/mp_20/val.npz --test_path data/mp_20/test.npz
 ```
 
 ### sample
 
 ```bash
-python ./main.py --optimizer none --test_path data/mp_20/test.csv --restore_path model/epoch_005200.pkl --spacegroup 1 --num_samples 1000  --batchsize 1000 --temperature 1.0
+python ./main.py --optimizer none --restore_path model/epoch_005200.pkl --spacegroup 1 --num_samples 1000  --batchsize 1000 --temperature 1.0
 ```
 
 - `optimizer`: the optimizer to use, `none` means no training, only sampling
@@ -173,36 +184,26 @@ The input for the `elements` can be also the `json` file which specifies the ato
 - `atom_mask`: set the atom list for each Wyckoff position, the element can only be selected from the list in the corresponding Wyckoff position
 - `constraints`: set the constraints for the Wyckoff sites in the sampling, you can specify the pair of Wyckoff sites that should have the same elements
 
-Note: 
+Note1: 
 
 If use parallel training, the sampling also need to add the option '--parallel 1'
 
-### evaluate
+Note2:
 
-To convert the (G, A, X, L, W) tuple to `cif` format and evaluate its structure (atoms are not too close) and compositional (charge balance) validity, run the command:
+The sample code will also do the evaluation. It will first convert the (G,A,X,L,W) to cif strings and then check its structure (atoms are not too close) and compositional (charge balance) validity.
+
+Then it will do the relax steps to check the form energy, only form energy below the threshold (default -1.5eV/A) will be stored in `model/cifs/`. 
+
+## F&Q
+
+If this warning shows up, find the solution [here](https://docs.mila.quebec/examples/frameworks/jax_setup/index.html).
 ```bash
-python scripts/eval.py --output_path ./model/single_gpu_result/ --label 1 
+The NVIDIA driver's CUDA version is 11.7 which is older than the ptxas CUDA
+version (11.8.89). Because the driver is older than the ptxas version, XLA is
+disabling parallel compilation, which may slow down compilation. You should
+update your NVIDIA driver or use the NVIDIA-provided CUDA forward
+compatibility packages.
 ```
-
-`output_path` is the folder which contains the pretrained model and it will also save the output results
-`lable` is the space group number from 1 to 231
-
-Calculate the novelty and uniqueness of the generated structures:
-
-```bash
-python ./scripts/compute_metrics_matbench.py --train_path TRAIN_PATH --test_path TEST_PATH --gen_path GEN_PATH --output_path OUTPUT_PATH --label SPACE_GROUP --num_io_process 40
-```
-
-- `train_path`: the path to the training dataset
-- `test_path`: the path to the test dataset
-- `gen_path`: the path to the generated dataset
-- `output_path`: the path to save the metrics results
-- `label`: the label to save the metrics results, which is the space group number `g`
-- `num_io_process`: the number of processes
-
-Note that the training, test, and generated datasets should contain the structures within the **same** space group `g` which is specified in the command `--label`.
-
-More details about the post-processing can be seen in the [scripts](./scripts/README.md) folder.
 
 ## How to cite
 

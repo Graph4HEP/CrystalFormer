@@ -2,7 +2,7 @@
 from collections import Counter
 import argparse
 import json
-import os
+import os, re
 import pandas as pd
 from ast import literal_eval
 
@@ -153,6 +153,26 @@ def main(args):
             with open(f'{args.root_path}validity_result_cif_{args.label}/{idx}.cif', 'w', encoding='utf-8') as file:
                 file.write(all_metrics['validity']['cif'][idx])
 
+def select(data, label):
+    all_metrics = {}
+
+    p = multiprocessing.Pool(20)
+    crys = p.map_async(get_crystal, data).get()
+    crys = [c for c in crys if c is not None]
+    print(f"Number of valid crystals: {len(crys)}")
+    p.close()
+    p.join()
+
+    all_metrics['validity'] = get_validity(crys)
+
+    #os.makedirs(f'model/validity_result_cif_{label}', exist_ok=True)
+    #for idx in range(len(crys)):
+    #    if(all_metrics['validity']['valid'][idx]==1):
+    #        formula = re.search(r"_chemical_formula_structural\s+(.+)", all_metrics['validity']['cif'][idx]).group(1)
+    #        with open(f'model/validity_result_cif_{label}/{formula}.cif', 'w', encoding='utf-8') as file:
+    #            file.write(all_metrics['validity']['cif'][idx])
+    
+    return all_metrics['validity']['cif']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

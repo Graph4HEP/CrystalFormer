@@ -81,6 +81,25 @@ def get_struct_from_lawx(G, L, A, W, X):
     struct = Structure(lattice, A_list, X_list)
     return struct
 
+def convert_to_cif(L, X, A, W, label):
+    L = np.array(L.tolist())
+    X = np.array(X.tolist())
+    A = np.array(A.tolist())
+    W = np.array(W.tolist())
+
+    ### Multiprocessing. Use it if only run on CPU
+    p = multiprocessing.Pool(20)
+    G = np.array([int(label) for _ in range(len(L))])
+    structures = p.starmap_async(get_struct_from_lawx, zip(G, L, A, W, X)).get()
+    p.close()
+    p.join()
+
+    structures_dict = [i.as_dict() for i in structures]
+    cif_strs = [CifWriter(i, significant_figures=6).__str__() for i in structures]
+    data = structures_dict
+
+    return data
+
 def main(args):
     input_path = args.output_path + f'output_{args.label}.csv'
     origin_data = pd.read_csv(input_path)

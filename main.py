@@ -95,32 +95,11 @@ if args.num_io_process > num_cpu:
 
 ################### Data #############################
 if args.optimizer != "none":
-    #original method to load data
     train_data = dp(args.train_path, args.num_io_process, args.n_max)
     valid_data = dp(args.valid_path, args.num_io_process, args.n_max)
-    #if(args.train_path[-3:]=='csv' and args.valid_path[-3:]=='csv'):
-    #    train_data = GLXYZAW_from_file(args.train_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
-    #    valid_data = GLXYZAW_from_file(args.valid_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
-    #load data from the preprocess
-    #elif(args.train_path[-3:]=='npz' and args.valid_path[-3:]=='npz'):
-    #    train_npz = np.load(args.train_path)
-    #    valid_npz = np.load(args.valid_path)
-    #    train_data = jnp.array(train_npz['array1']), jnp.array(train_npz['array2']), jnp.array(train_npz['array3']), jnp.array(train_npz['array4']), jnp.array(train_npz['array5'])
-    #    valid_data = jnp.array(valid_npz['array1']), jnp.array(valid_npz['array2']), jnp.array(valid_npz['array3']), jnp.array(valid_npz['array4']), jnp.array(valid_npz['array5'])
-    #else:
-    #    print('wrong input data, exit now!')
-    #    sys.exit()
+    test_data = dp(args.test_path, args.num_io_process, args.n_max)
 else:
     assert (args.spacegroup is not None) # for inference we need to specify space group
-    test_data = dp(args.test_path, args.num_io_process, args.n_max)
-    #if(args.test_path[-3:]=='csv'):
-    #    test_data = GLXYZAW_from_file(args.test_path, args.atom_types, args.wyck_types, args.n_max, args.num_io_process)
-    #elif(args.test_path[-3]=='npz'):
-    #    test_npz = np.load(args.test_path)
-    #    test_data = jnp.array(test_npz['array1']),  jnp.array(test_npz['array2']),  jnp.array(test_npz['array3']),  jnp.array(test_npz['array4']),  jnp.array(test_npz['array5'])
-    #else:
-    #    print('wrong input data, exit now!')
-    #    sys.exit()
 
     # jnp.set_printoptions(threshold=jnp.inf)  # print full array 
     constraints = jnp.arange(0, args.n_max, 1)
@@ -262,15 +241,7 @@ if args.optimizer != "none":
     else:
         params, opt_state = train_mgpu(key, optimizer, opt_state, loss_fn, params, epoch_finished, args.epochs, args.batchsize, train_data, valid_data, output_path, args)
 
-    print('training done! If you want to sampling some new structures, please run:')
-    print('python ./main.py --optimizer none --test_path {args.test_path} --restore_path {output_path}/epoch_***.pkl --spacegroup [0-230] --num_samples 1000  --batchsize 1000 --temperature 1.0 ')
-
-
-else:
-    pass
-
     print("\n========== Calculate the loss of test dataset ==========")
-    import numpy as np 
     np.set_printoptions(threshold=np.inf)
 
     test_G, test_L, test_XYZ, test_A, test_W = test_data
@@ -290,8 +261,20 @@ else:
         test_loss += loss
     test_loss = test_loss / num_batches
     print ("evaluating loss on test data:" , test_loss)
+    
+    print('training done! If you want to sampling some new structures, please run:')
+    print('python ./main.py --optimizer none --restore_path {output_path}/epoch_***.pkl --spacegroup [0-230] --num_samples 1000  --batchsize 1000 --temperature 1.0 ')
+
+
+else:
+    pass
 
     print("\n========== Start sampling ==========")
+    sys.path.append('scripts')
+    from awl2struct import convert_to_cif
+    from compute_metrics import select
+    from form_energy_eval import getEnergy 
+
     st = time.time()
     jax.config.update("jax_enable_x64", True) # to get off compilation warning, and to prevent sample nan lattice 
     #FYI, the error was [Compiling module extracted] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
@@ -312,13 +295,12 @@ else:
     num_batches = math.ceil(args.num_samples / args.batchsize)
     name, extension = args.output_filename.rsplit('.', 1)
 
+    st = time.time()
     for sg in range(1,231):
         if(args.spacegroup!=0):
             if(args.spacegroup!=sg):
                 continue
         print('start sample ', sg)
-        filename = os.path.join(output_path, 
-                                f"{name}_{sg}.{extension}")
         for batch_idx in range(num_batches):
             start_idx = batch_idx * args.batchsize
             end_idx = min(start_idx + args.batchsize, args.num_samples)
@@ -331,51 +313,12 @@ else:
                 x = (G, L, XYZ, A, W)
                 key, subkey = jax.random.split(key)
                 x, acc = mcmc(logp_fn, x_init=x, key=subkey, mc_steps=mc_steps, mc_width=args.mc_width)
-                #print("acc", acc)
 
                 G, L, XYZ, A, W = x
                 key, subkey = jax.random.split(key)
                 L = update_lattice(subkey, G, XYZ, A, W)
         
-            #print ("XYZ:\n", XYZ)  # fractional coordinate 
-            #print ("A:\n", A)  # element type
-            #print ("W:\n", W)  # Wyckoff positions
-            #print ("M:\n", M)  # multiplicity 
-            #print ("N:\n", M.sum(axis=-1)) # total number of atoms
-            #print ("L:\n", L)  # lattice
-            #for a in A:
-            #   print([element_list[i] for i in a])
-
-            # output L, X, A, W, M, AW to csv file
-            # output logp_w, logp_xyz, logp_a, logp_l to csv file
-            import pandas as pd
-            data = pd.DataFrame()
-            data['L'] = np.array(L).tolist()
-            data['X'] = np.array(XYZ).tolist()
-            data['A'] = np.array(A).tolist()
-            data['W'] = np.array(W).tolist()
-            data['M'] = np.array(M).tolist()
-
-            #num_atoms = jnp.sum(M, axis=1)
-            #length, angle = jnp.split(L, 2, axis=-1)
-            #length = length/num_atoms[:, None]**(1/3)
-            #angle = angle * (jnp.pi / 180) # to rad
-            #L = jnp.concatenate([length, angle], axis=-1)
-
-            # G = sg * jnp.ones((n_sample), dtype=int)
-            #logp_w, logp_xyz, logp_a, logp_l = jax.jit(logp_fn, static_argnums=7)(params, key, G, L, XYZ, A, W, False)
-    
-            #data['logp_w'] = np.array(logp_w).tolist()
-            #data['logp_xyz'] = np.array(logp_xyz).tolist()
-            #data['logp_a'] = np.array(logp_a).tolist()
-            #data['logp_l'] = np.array(logp_l).tolist()
-            #data['logp'] = np.array(logp_xyz + args.lamb_w*logp_w + args.lamb_a*logp_a + args.lamb_l*logp_l).tolist()
-
-            #data = data.sort_values(by='logp', ascending=False) # sort by logp
-            header = False if os.path.exists(filename) else True
-            data.to_csv(filename, mode='a', index=False, header=header)
-
-        print ("Wrote samples to %s"%filename)
-        print(f"sample time used: {time.time()-st:.1f}s")
-        print("sampling done, if you want to check the quality of the generated structures, please run:")
-        print(f"python ./script/eval.py --output_path {output_path} --label [1-231] --train_path {args.train_path} --test_path {args.test_path}")
+            aw2st = convert_to_cif(L, XYZ, A, W, sg)
+            cifs = select(aw2st, sg)
+            getEnergy('./model/cifs/', cifs, -1.5, sg)
+            print(f"sample time used: {time.time()-st:.1f}s")
