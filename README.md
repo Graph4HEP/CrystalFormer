@@ -184,15 +184,20 @@ The input for the `elements` can be also the `json` file which specifies the ato
 - `atom_mask`: set the atom list for each Wyckoff position, the element can only be selected from the list in the corresponding Wyckoff position
 - `constraints`: set the constraints for the Wyckoff sites in the sampling, you can specify the pair of Wyckoff sites that should have the same elements
 
-Note1: 
+`Note1`
 
 If use parallel training, the sampling also need to add the option '--parallel 1'
 
-Note2:
+`Note2`
 
-The sample code will also do the evaluation. It will first convert the (G,A,X,L,W) to cif strings and then check its structure (atoms are not too close) and compositional (charge balance) validity.
+The sample code will also do the evaluation. It will first convert the (G,A,X,L,W) to cif strings and then check its structure (atoms are not too close) and compositional (charge balance) validity. The cifs will stored at `model/cifs`
 
-Then it will do the relax steps to check the form energy, only form energy below the threshold (default -1.5eV/A) will be stored in `model/cifs/`. 
+`Note3`
+ 
+To eval the from energy for a cif folder, just run:
+```bash
+python scripts/form_energy_eval.py
+```
 
 ## F&Q
 

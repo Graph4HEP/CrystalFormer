@@ -2,7 +2,7 @@
 from collections import Counter
 import argparse
 import json
-import os, re
+import os, re, time
 import pandas as pd
 from ast import literal_eval
 
@@ -165,13 +165,12 @@ def select(data, label):
 
     all_metrics['validity'] = get_validity(crys)
 
-    #os.makedirs(f'model/validity_result_cif_{label}', exist_ok=True)
-    #for idx in range(len(crys)):
-    #    if(all_metrics['validity']['valid'][idx]==1):
-    #        formula = re.search(r"_chemical_formula_structural\s+(.+)", all_metrics['validity']['cif'][idx]).group(1)
-    #        with open(f'model/validity_result_cif_{label}/{formula}.cif', 'w', encoding='utf-8') as file:
-    #            file.write(all_metrics['validity']['cif'][idx])
-    
+    os.makedirs(f'model/cifs/', exist_ok=True)
+    for idx in range(len(crys)):
+        if(all_metrics['validity']['valid'][idx]==1):            
+            formula = re.search(r"_chemical_formula_structural\s+(.+)", all_metrics['validity']['cif'][idx]).group(1)
+            with open(f'model/cifs/init_{formula}.cif', 'w', encoding='utf-8') as file:
+                file.write(all_metrics['validity']['cif'][idx])            
     return all_metrics['validity']['cif']
 
 if __name__ == '__main__':

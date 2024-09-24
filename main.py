@@ -319,6 +319,6 @@ else:
                 L = update_lattice(subkey, G, XYZ, A, W)
         
             aw2st = convert_to_cif(L, XYZ, A, W, sg)
-            cifs = select(aw2st, sg)
-            getEnergy('./model/cifs/', cifs, -1.5, sg)
+            cifs = select(aw2st, sg)            
+            #getEnergy('./model/cifs/', cifs, -1.5, sg)
             print(f"sample time used: {time.time()-st:.1f}s")

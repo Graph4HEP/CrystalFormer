@@ -59,7 +59,7 @@ def sample_x(key, h_x, Kx, top_p, temperature, batchsize):
     x = (x+ jnp.pi)/(2.0*jnp.pi) # wrap into [0, 1]
     return key, x 
 
-@partial(jax.jit, static_argnums=(1, 3, 4, 5, 6, 7, 8, 9, 12, 14))
+@partial(jax.jit, static_argnums=(1, 3, 4, 5, 6, 7, 8, 12, 14))
 def sample_crystal(key, transformer, params, n_max, batchsize, atom_types, wyck_types, Kx, Kl, g, w_mask, atom_mask, top_p, temperature, T1, constraints):
        
     def body_fn(i, state):

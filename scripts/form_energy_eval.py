@@ -158,13 +158,7 @@ def getEnergy(path, cifs, thre, label):
             cif_file = f'{path}{atoms.symbols}_{label}.cif'
             ase.io.write(cif_file, atoms, format='cif')
 
-def main(path):
-    name = glob.glob(f'{path}*.cif')
-    os.makedirs(f'{path}excellent', exist_ok=True)
-    for n in tqdm.tqdm(name):
-        getEnergy(path, n)
-
 if __name__ == '__main__':
     path = sys.argv[1]
-    main(path)
-        
+    cifs = glob.glob(path)    
+    getEnergy(path, cifs)    
